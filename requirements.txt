@@ -1,0 +1,8 @@
+fastapi[standard]
+fastmcp
+pydantic
+json-repair
+openai
+pydantic-settings
+tavily-python
+cryptoagents-a2a-devkit
