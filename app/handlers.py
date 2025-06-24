@@ -15,7 +15,6 @@ from app.utils import (
     refine_chat_history,
     refine_assistant_message,
     get_newest_message,
-    wrap_chunk
 )
 from typing import Optional, Any, AsyncGenerator
 from app.configs import settings, NOTIFICATION_TEMPLATES
@@ -62,14 +61,16 @@ async def handle_request(request: ChatCompletionRequest) -> AsyncGenerator[ChatC
     colaborators = settings.agent_collaborators
 
     colaborators_chat_histories: dict[str, list[dict[str, str]]] = {
-        str(colab): []
+        str(colab["id"]): []
         for colab in colaborators
+        if colab.get("id")
     }
 
     while not finished:
         completion_builder = ChatCompletionResponseBuilder()
         requires_toolcall = n_calls < max_calls
-        toolcalls = oai_tools + await get_a2a_toolcalls()
+        a2a_toolcalls = await get_a2a_toolcalls()
+        toolcalls = oai_tools + a2a_toolcalls
 
         payload = dict(
             messages=messages,
@@ -82,7 +83,6 @@ async def handle_request(request: ChatCompletionRequest) -> AsyncGenerator[ChatC
             payload.pop("tools")
             payload.pop("tool_choice")
 
-        logger.info(f"Payload - URL: {settings.llm_base_url}, API Key: {'*' * len(settings.llm_api_key)}, Model: {settings.llm_model_id}")
         streaming_iter = create_streaming_response(
             settings.llm_base_url,
             settings.llm_api_key,

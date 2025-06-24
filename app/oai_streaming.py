@@ -111,13 +111,16 @@ class ChatCompletionResponseBuilder:
 async def create_streaming_response(
     base_url: str,
     api_key: str,
+    completion_path: str = "/chat/completions",
     **payload_to_call
 ) -> AsyncGenerator[ChatCompletionStreamResponse, None]:
+    completion_path = completion_path.strip("/")
+    logger.info(f"Streaming response to {base_url}/{completion_path}")
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(follow_redirects=True) as client:
         async with client.stream(
             "POST",
-            f"{base_url}/chat/completions",
+            f"{base_url}/{completion_path}",
             json={
                 **payload_to_call,
                 'stream': True
@@ -152,22 +155,6 @@ async def create_streaming_response(
                             yield ErrorResponse.model_validate(resp_json.get("error", {}))
 
                     except Exception as e:
-
-                        curl_command = reconstruct_curl_request(
-                            base_url,
-                            api_key,
-                            **payload_to_call,
-                            stream=True
-                        )
-
-                        message = (
-                            f"<h2>STREAMING-ERROR</h2>\n"
-                            f"<p>Failed to parse chunk: {e}</p>\n"
-                            f"<p>line: {line}</p>\n"
-                            f"<pre>{curl_command}</pre>\n"
-                        )
-
-                        logger.error(message)
                         raise e
 
                     if resp_json.get('object', '') == 'chat.completion.chunk':
@@ -175,4 +162,13 @@ async def create_streaming_response(
 
             except Exception as e:
                 logger.error(f"Failed to stream response: {e}")
+
+                curl_command = reconstruct_curl_request(
+                    base_url,
+                    api_key,
+                    **payload_to_call,
+                    stream=True
+                )
+
+                logger.error(f"Failed to stream response: {e}\n{curl_command}")
                 raise e

@@ -11,7 +11,8 @@ IMPORTANT:
 - When the user hints about what they are doing and/or talking about their information, use the `bio` tool to take a note.
 - When solving a mathematical problem, use Python code to execute calculations and obtain the results, rather than calculating them yourself.
 - For real-time information or what is in your knowledge gaps, use the web tools.
-- Finally, for what you don't know, all the tools did not help either. Honestly, talk to the user.
+- You have some collaborators, they are masters in their fields. Use the `call_*` tools to ask them for help.
+- Finally, if all the tools did not help either, honestly, talk to the user.
 """
 
 def get_agent_system_prompt() -> str:
@@ -23,7 +24,7 @@ def get_agent_system_prompt() -> str:
 
     if "SYSTEM_PROMPT" in os.environ:
         sys_prompt = os.environ["SYSTEM_PROMPT"]
-
+        
         try:
             sys_prompt_json: dict = json.loads(sys_prompt)
             return sys_prompt_json.get("personality", "") + "\n\n" + BASE_SYSTEM_PROMPT
@@ -38,7 +39,7 @@ def get_agent_collaborators() -> list[dict]:
         with open("agent_cfg.json", "r") as f:
             agent_cfg: dict = json.load(f)
 
-        return agent_cfg.get("collaborators", [])
+        return agent_cfg.get("dependencies", [])
 
     if "SYSTEM_PROMPT" in os.environ:
         sys_prompt = os.environ["SYSTEM_PROMPT"]
@@ -58,6 +59,10 @@ class Settings(BaseSettings):
 
     agent_system_prompt: str = Field(alias="AGENT_SYSTEM_PROMPT", default=get_agent_system_prompt())
     agent_collaborators: list[dict] = Field(alias="AGENT_COLLABORATORS", default=get_agent_collaborators())
+
+    # triage server
+    backend_base_url: str = Field(alias="BACKEND_BASE_URL", default="http://localhost:8010")
+    authorization_token: str = Field(alias="AUTHORIZATION_TOKEN", default="super-secret")
 
     # app state
     app_env: str = Field(alias="APP_ENV", default="development")

@@ -36,7 +36,6 @@ def main():
         port=settings.port,
         log_level="warning",
         timeout_keep_alive=300,
-        workers=32
     )
 
     server = uvicorn.Server(config)

@@ -25,6 +25,8 @@ from app.utils import wrap_chunk
 from app.configs import NOTIFICATION_TEMPLATES
 import random
 
+logger = logging.getLogger(__name__)
+
 python_toolkit = FastMCP(name="Python-Toolkit")
 web_toolkit = FastMCP(name="Web-Toolkit")
 bio_toolkit = FastMCP(name="Bio-Toolkit")
@@ -260,24 +262,32 @@ async def get_a2a_toolcalls() -> list[dict]:
     res = []
 
     dependencies: list[a2a_handlers.AgentDetail] = [
-        await get_agent_detail(agent_id)
-        for agent_id in settings.agent_collaborators
+        await get_agent_detail(
+            colab.get("id"),
+            backend_base_url=settings.backend_base_url,
+            authorization_token=settings.authorization_token
+        )
+        for colab in settings.agent_collaborators
+        if colab.get("id")
     ]
-
+    
     for dependency in dependencies:
-        if dependency and dependency.status == "running":
+        if dependency and dependency["status"] == "running":
             res.append({
-                "name": f"call_{dependency.agent_id}",
-                "description": f"{dependency.agent_name}, {dependency.description}",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "message": {
-                            "type": "string",
-                            "description": "The message to ask the agent"
-                        }
-                    },
-                    "required": ["message"]
+                "type": "function",
+                "function": {
+                    "name": f"call_{dependency['agent_id']}",
+                    "description": f"{dependency['agent_name']}, {dependency['description']}",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "message": {
+                                "type": "string",
+                                "description": "The message to ask the agent"
+                            }
+                        },
+                        "required": ["message"]
+                    }
                 }
             })
 
@@ -286,22 +296,28 @@ async def get_a2a_toolcalls() -> list[dict]:
 async def handle_a2a_call(
     agent_id: str | int, message: str, chat_history: list[dict[str, str]]
 ) -> AsyncGenerator[ChatCompletionStreamResponse | ErrorResponse, None]:
-    agent_detail: a2a_handlers.AgentDetail = await get_agent_detail(agent_id)
+    agent_detail: a2a_handlers.AgentDetail = await get_agent_detail(
+        agent_id,
+        backend_base_url=settings.backend_base_url,
+        authorization_token=settings.authorization_token
+    )
 
-    if not agent_detail or agent_detail.status != "running":
+    if not agent_detail or agent_detail["status"] != "running":
         yield wrap_chunk(id=random_uuid(), content=f"{agent_id} is away!", role="assistant")
         return
+    
+    logger.info(f"Agent Detail: {agent_detail}")
 
-    url = f"{agent_detail.base_url}/prompt"
     templated_notification = random.choice(NOTIFICATION_TEMPLATES).format(agent_identity=agent_id)
-    notification = f'<agent_message id="{agent_id}" avatar="{agent_detail.avatar_url}" notification="{templated_notification}">'
+    notification = f'<agent_message id="{agent_id}" avatar="{agent_detail["avatar_url"]}" notification="{templated_notification}">'
 
     try:
         yield wrap_chunk(id=random_uuid(), content=notification, role="assistant")
-        
+
         stream_it = create_streaming_response(
-            base_url=url,
-            api_key="no-need",
+            base_url=agent_detail['base_url'],
+            api_key=settings.authorization_token,
+            completion_path="prompt",
             messages=chat_history + [{"role": "user", "content": message}],
         )
 
