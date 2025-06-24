@@ -106,34 +106,15 @@ async def handle_request(request: ChatCompletionRequest) -> AsyncGenerator[ChatC
             if match:
                 _result, agent_id = "", str(match.group(1))
                 message_arg = _args.get("message", "")
-                agent_detail = await get_agent_detail(agent_id)
 
-                if agent_detail is None or agent_detail.status != "running":
-                    _result = f"{agent_id} is away"
-                    yield wrap_chunk(id=random_uuid(), content=f"{agent_id} is away", role="assistant")
+                async for chunk in handle_a2a_call(agent_id, message_arg, colaborators_chat_histories[agent_id]):
+                    yield chunk
+                    _result += chunk.choices[0].delta.content
 
-                else:
-                    try:
-                        templated_notification = random.choice(NOTIFICATION_TEMPLATES).format(agent_identity=agent_id)
-                        notification = f'<agent_message id="{agent_id}" avatar="{agent_detail.avatar_url}" notification="{templated_notification}">'
-                        yield wrap_chunk(id=random_uuid(), content=notification, role="assistant")
-
-                        async for chunk in handle_a2a_call(agent_id, message_arg, colaborators_chat_histories[agent_id]):
-                            if isinstance(chunk, ChatCompletionStreamResponse) and chunk.choices[0].delta.content:
-                                yield chunk
-                                _result += chunk.choices[0].delta.content
-
-                            elif isinstance(chunk, ErrorResponse):
-                                yield chunk.message
-                                break
-
-                    finally:
-                        yield wrap_chunk(id=random_uuid(), content=f"</agent_message>", role="assistant")
-
-                    colaborators_chat_histories[agent_id].extend([
-                        {"role": "user", "content": message_arg},
-                        {"role": "assistant", "content": refine_mcp_response(_result)}
-                    ])
+                colaborators_chat_histories[agent_id].extend([
+                    {"role": "user", "content": message_arg},
+                    {"role": "assistant", "content": refine_mcp_response(_result)}
+                ])
 
             else:
                 _result = await execute_openai_compatible_toolcall(_name, _args, compose_mcp)

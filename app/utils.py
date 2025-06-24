@@ -157,7 +157,7 @@ def refine_mcp_response(something: Any) -> str:
         ]
 
     elif isinstance(something, BaseModel):
-        return something.model_dump()
+        return refine_mcp_response(something.model_dump())
 
     elif isinstance(something, str):
         return strip_marker(strip_marker(strip_marker(something, "details"), "think"), "agent_message").strip()

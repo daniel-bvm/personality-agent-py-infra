@@ -20,6 +20,10 @@ from cryptoagents_a2a_devkit import get_agent_detail, handlers as a2a_handlers
 from app.oai_models import ChatCompletionStreamResponse, ErrorResponse
 from app.oai_streaming import create_streaming_response
 
+from app.oai_models import random_uuid
+from app.utils import wrap_chunk
+from app.configs import NOTIFICATION_TEMPLATES
+import random
 
 python_toolkit = FastMCP(name="Python-Toolkit")
 web_toolkit = FastMCP(name="Web-Toolkit")
@@ -285,13 +289,17 @@ async def handle_a2a_call(
 ) -> AsyncGenerator[ChatCompletionStreamResponse | ErrorResponse, None]:
     agent_detail: a2a_handlers.AgentDetail = await get_agent_detail(agent_id)
 
-    if not agent_detail:
-        yield ErrorResponse(message=f"{agent_id} away!", type="agent_not_found")
+    if not agent_detail or agent_detail.status != "running":
+        yield wrap_chunk(id=random_uuid(), content=f"{agent_id} is away!", role="assistant")
         return
 
     url = f"{agent_detail.base_url}/prompt"
-    
+    templated_notification = random.choice(NOTIFICATION_TEMPLATES).format(agent_identity=agent_id)
+    notification = f'<agent_message id="{agent_id}" avatar="{agent_detail.avatar_url}" notification="{templated_notification}">'
+
     try:
+        yield wrap_chunk(id=random_uuid(), content=notification, role="assistant")
+        
         stream_it = create_streaming_response(
             base_url=url,
             api_key="no-need",
@@ -299,8 +307,14 @@ async def handle_a2a_call(
         )
 
         async for chunk in stream_it:
-            if chunk.choices[0].delta.content:
+            if isinstance(chunk, ChatCompletionStreamResponse) and chunk.choices[0].delta.content:
                 yield chunk
+
+            elif isinstance(chunk, ErrorResponse):
+                raise Exception(chunk.message)
+
     except Exception as err:
-        # TODO: handle error here 
-        pass
+        yield wrap_chunk(id=random_uuid(), content=f"...\n{agent_id} has not completed the task due to {err!r}!", role="assistant") 
+
+    finally:
+        yield wrap_chunk(id=random_uuid(), content=f"</agent_message>", role="assistant")
