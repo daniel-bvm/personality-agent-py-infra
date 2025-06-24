@@ -99,6 +99,8 @@ async def handle_request(request: ChatCompletionRequest) -> AsyncGenerator[ChatC
         messages.append(refine_assistant_message(completion.choices[0].message))
 
         for call in (completion.choices[0].message.tool_calls or []):
+            n_calls += 1
+
             _id, _name, _args = call.id, call.function.name, call.function.arguments
             _args: dict = json.loads(_args)
             match = a2a_call_pattern.match(_name)
@@ -127,7 +129,6 @@ async def handle_request(request: ChatCompletionRequest) -> AsyncGenerator[ChatC
                 }
             )
 
-            n_calls += 1
 
         finished = len((completion.choices[0].message.tool_calls or [])) == 0
 

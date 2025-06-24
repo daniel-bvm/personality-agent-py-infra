@@ -4,33 +4,13 @@ import uvicorn
 import asyncio
 from app.configs import settings
 from app.apis import api_router
-from fastapi import Request, Response
-from typing import Callable
-import time
 import logging
 
-logging_fmt = "%(asctime)s - %(message)s"
-logging.basicConfig(level=logging.INFO, format=logging_fmt)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-async def lifespan(app: fastapi.FastAPI):
-    logger.info(f"Starting Launchpad Agent server at {settings.host}:{settings.port}")
-
-    try:
-        yield
-
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        raise e
-
-    finally:
-        logger.info("Shutting down server")
-
 def main():
-
-    server_app = fastapi.FastAPI(
-        lifespan=lifespan
-    )
+    server_app = fastapi.FastAPI()
 
     server_app.add_middleware(
         CORSMiddleware,
@@ -45,16 +25,6 @@ def main():
     @server_app.get("/health")
     async def healthcheck():
         return {"status": "ok", "message": "Yo, I am alive"}
-    
-    # @server_app.middleware("http")
-    async def log_request_processing_time(request: Request, call_next: Callable) -> Response:
-        start_time = time.time()
-        response: Response = await call_next(request)
-
-        if request.url.path.startswith((api_router.prefix, )):
-            logger.info(f"{request.method} - {request.url.path} - {time.time() - start_time:.4f} seconds - {response.status_code}")
-
-        return response
 
     event_loop = asyncio.new_event_loop()
     asyncio.set_event_loop(event_loop)

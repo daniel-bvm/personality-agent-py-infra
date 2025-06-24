@@ -252,10 +252,9 @@ async def get_bio(query: str) -> list[str]:
 
 compose = FastMCP(name="Compose")
 
-compose.mount("python", python_toolkit)
-compose.mount("bio", bio_toolkit)
-compose.mount("web", web_toolkit)
-
+compose.mount(python_toolkit, prefix="python")
+compose.mount(bio_toolkit, prefix="bio")
+compose.mount(web_toolkit, prefix="web")
 
 async def get_a2a_toolcalls() -> list[dict]:
     res = []
