@@ -213,7 +213,7 @@ def refine_chat_history(messages: list[dict[str, str]], system_prompt: str) -> l
         else:
             _message = {
                 "role": message.get('role', 'assistant'),
-                "content": strip_marker(strip_marker(message.get("content", ""), "details"), "think")
+                "content": strip_marker(strip_marker(strip_marker(message.get("content", ""), "details"), "think"), "agent_message")
             }
 
             refined_messages.append(_message)
@@ -240,7 +240,7 @@ def refine_assistant_message(
         assistant_message = assistant_message.model_dump()
 
     if 'content' in assistant_message:
-        assistant_message['content'] = strip_marker(strip_marker(assistant_message['content'] or "", "details"), "think")
+        assistant_message['content'] = strip_marker(strip_marker(strip_marker(assistant_message['content'] or "", "details"), "think"), "agent_message")
 
     return assistant_message
 

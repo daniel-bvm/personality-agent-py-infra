@@ -2,8 +2,6 @@ from app.oai_models import (
     ChatCompletionRequest, 
     ChatCompletionResponse, 
     ChatCompletionStreamResponse, 
-    ErrorResponse, 
-    random_uuid
 )
 
 from app.oai_streaming import create_streaming_response, ChatCompletionResponseBuilder
@@ -128,7 +126,6 @@ async def handle_request(request: ChatCompletionRequest) -> AsyncGenerator[ChatC
                     "content": refine_mcp_response(_result)
                 }
             )
-
 
         finished = len((completion.choices[0].message.tool_calls or [])) == 0
 

@@ -15,6 +15,17 @@ IMPORTANT:
 - Finally, if all the tools did not help either, honestly, talk to the user.
 """
 
+RECOMMENDED_PROMPT_PREFIX = """# System context
+You are part of a multi-agent system called the Agents SDK, designed to make agent coordination and execution easy. Agents uses primary abstraction: **Agents** and **Handoffs**. An agent encompasses instructions and tools and can hand off a conversation to another agent when appropriate. Handoffs are achieved by calling a handoff function, generally named `call_<id>`. Transfers between agents are handled seamlessly in the background; do not mention or draw attention to these transfers in your conversation with the user.
+"""
+
+BASE_SYSTEM_PROMPT = """
+IMPORTANT:
+- For real-time information or what is in your knowledge gaps, use the web tools.
+- You have some collaborators, they are masters in their fields. Use the `call_*` tools to ask them for help.
+- Finally, if all the tools did not help either, honestly, talk to the user.
+"""
+
 def get_agent_system_prompt() -> str:
     if os.path.exists("agent_cfg.json"):
         with open("agent_cfg.json", "r") as f:
