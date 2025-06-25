@@ -166,8 +166,8 @@ async def create_streaming_response(
                 curl_command = reconstruct_curl_request(
                     base_url,
                     api_key,
+                    stream=True,
                     **payload_to_call,
-                    stream=True
                 )
 
                 logger.error(f"Failed to stream response: {e}\n{curl_command}")
