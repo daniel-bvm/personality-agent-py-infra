@@ -21,7 +21,7 @@ from app.oai_streaming import create_streaming_response
 
 from app.oai_models import random_uuid
 from app.utils import wrap_chunk
-from app.configs import NOTIFICATION_TEMPLATES, Dependency
+from app.configs import NOTIFICATION_TEMPLATES, AGENT_ABSENT_TEMPLATES, Dependency
 import random
 
 logger = logging.getLogger(__name__)
@@ -301,14 +301,40 @@ async def handle_a2a_call(
         authorization_token=settings.authorization_token
     )
 
-    if not agent_detail or agent_detail["status"] != "running":
-        yield wrap_chunk(id=random_uuid(), content=f"{agent_id} is away!", role="assistant")
+    if agent_detail is None or agent_detail["status"] != "running":
+        absent_template = random.choice(AGENT_ABSENT_TEMPLATES)
+
+        if agent_detail is not None:
+            avatar = agent_detail.get("avatar_url", "")
+            agent_name = agent_detail.get("agent_name", agent_id) or agent_id
+
+            templated_notification = absent_template.format(agent_identity=agent_name)
+
+            yield wrap_chunk(
+                id=random_uuid(),
+                content=f'<agent_message id="{agent_id}" avatar="{avatar}" notification="{templated_notification}">{agent_name} is not here!</agent_message>',
+                role="assistant"
+            )
+
+        else:
+            templated_notification = absent_template.format(agent_identity=agent_id)
+
+            yield wrap_chunk(
+                id=random_uuid(),
+                content=f'<agent_message id="{agent_id}" notification="{templated_notification}">{agent_id} is not here!</agent_message>',
+                role="assistant"
+            )
+        
         return
     
     logger.info(f"Agent Detail: {agent_detail}")
 
-    templated_notification = random.choice(NOTIFICATION_TEMPLATES).format(agent_identity=agent_id)
-    notification = f'<agent_message id="{agent_id}" avatar="{agent_detail["avatar_url"]}" notification="{templated_notification}">'
+    agent_name = agent_detail.get("agent_name") or agent_id
+    avatar_url = agent_detail.get("avatar_url", "")
+
+    templated_notification = random.choice(NOTIFICATION_TEMPLATES).format(agent_identity=agent_name)
+
+    notification = f'<agent_message id="{agent_id}" avatar="{avatar_url}" notification="{templated_notification}">'
 
     try:
         yield wrap_chunk(id=random_uuid(), content=notification, role="assistant")

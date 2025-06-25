@@ -206,3 +206,26 @@ NOTIFICATION_TEMPLATES = [
     "{agent_identity} is hacking the mainframe (legally).",
     "{agent_identity} is traveling at lightspeed through JSON.",
 ]
+
+AGENT_ABSENT_TEMPLATES = [
+    "{agent_identity} is currently unavailable.",
+    "{agent_identity} is offline at the moment.",
+    "{agent_identity} is away.",
+    "{agent_identity} has stepped out of the system.",
+    "{agent_identity} is not responding right now.",
+    "{agent_identity} isn't reachable at the moment.",
+    "{agent_identity} is taking a break.",
+    "{agent_identity} is on pause.",
+    "{agent_identity} went AFK.",
+    "{agent_identity} is snoozing right now.",
+    "{agent_identity} is out of service temporarily.",
+    "{agent_identity} has left the conversation.",
+    "{agent_identity} is in maintenance mode.",
+    "{agent_identity} is disconnected.",
+    "{agent_identity} is in sleep mode.",
+    "{agent_identity} isn't around right now.",
+    "{agent_identity} has clocked out.",
+    "{agent_identity} has gone dark.",
+    "{agent_identity} has left the grid.",
+    "{agent_identity} is off the radar.",
+]
