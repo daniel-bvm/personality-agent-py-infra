@@ -84,7 +84,7 @@ if settings.app_env == "production":
 
     if 'ETERNALAI_MCP_PROXY_URL' in os.environ:
         os.environ["PROXY_SCOPE"] = "*.api.tavily.com.*"
-        logger.info("Tavily proxy enabled")
+        print("Tavily proxy enabled")
         import app.__middleware
 
 NOTIFICATION_TEMPLATES = [
