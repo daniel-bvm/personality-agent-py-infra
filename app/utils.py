@@ -96,6 +96,12 @@ def convert_mcp_tools_to_openai_format(
     
     return openai_tools
 
+def strip_markers(content: str, markers: tuple[str, bool]) -> str:
+    for marker, outter_only in markers:
+        content = strip_marker(content, marker, outter_only)
+
+    return content
+
 def sanitize_tool_name(name: str) -> str:
     """Sanitize tool name for OpenAI compatibility"""
     # Replace any characters that might cause issues
@@ -160,13 +166,21 @@ def refine_mcp_response(something: Any) -> str:
         return refine_mcp_response(something.model_dump())
 
     elif isinstance(something, str):
-        return strip_marker(strip_marker(strip_marker(something, "details"), "think"), "agent_message").strip()
+        return strip_markers(
+            something, 
+            (("agent_message", True), ("think", False), ("details", False), ("img", False))
+        ).strip()
 
     return something
 
-def strip_marker(content: str, marker: str) -> str:
-    pat = re.compile(f"<{marker}\\b[^>]*>.*?</{marker}>", re.DOTALL | re.IGNORECASE)
-    return pat.sub("", content)
+def strip_marker(content: str, marker: str, outter_only: bool = False) -> str:
+    if not outter_only:
+        pat = re.compile(f"<{marker}\\b[^>]*>.*?</{marker}>", re.DOTALL | re.IGNORECASE)
+        return pat.sub("", content)
+
+    # remove the tag only, keep the text inside
+    pat = re.compile(f"<{marker}\\b[^>]*>(.*?)</{marker}>", re.DOTALL | re.IGNORECASE)
+    return pat.sub(lambda m: m.group(1).strip(), content)
 
 def refine_chat_history(messages: list[dict[str, str]], system_prompt: str) -> list[dict[str, str]]:
     refined_messages = []
@@ -213,7 +227,10 @@ def refine_chat_history(messages: list[dict[str, str]], system_prompt: str) -> l
         else:
             _message = {
                 "role": message.get('role', 'assistant'),
-                "content": strip_marker(strip_marker(strip_marker(message.get("content", ""), "details"), "think"), "agent_message")
+                "content": strip_markers(
+                    message.get("content", ""), 
+                    (("agent_message", True), ("think", False), ("details", False), ("img", False))
+                )
             }
 
             refined_messages.append(_message)
@@ -240,7 +257,10 @@ def refine_assistant_message(
         assistant_message = assistant_message.model_dump()
 
     if 'content' in assistant_message:
-        assistant_message['content'] = strip_marker(strip_marker(strip_marker(assistant_message['content'] or "", "details"), "think"), "agent_message")
+        assistant_message['content'] = strip_markers(
+            assistant_message['content'] or "", 
+            (("agent_message", True), ("think", False), ("details", False), ("img", False))
+        )
 
     return assistant_message
 

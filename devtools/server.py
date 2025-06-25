@@ -6,8 +6,8 @@ import uvicorn
 import os 
 import logging 
 import random
-from fastapi.responses import RedirectResponse
 from typing import AsyncGenerator
+from pydantic import BaseModel
 
 HOSTNAME = os.getenv("HOSTNAME")
 
@@ -28,33 +28,24 @@ async def random_chunking(s: str) -> AsyncGenerator[str, None]:
 
         await asyncio.sleep(random.uniform(0.1, 0.5))
 
+import openai
 
 @server_app.post("/prompt")
-async def prompt() -> StreamingResponse:
-    async def generator():
-        async for chunk in random_chunking(
-            random.choice([
-                "Hi, this is Dr. Moon, how can I help you today?", 
-                "I'm Dr. Moon, your AI healthcare assistant. How can I assist you today?", 
-                "Hello! I'm Dr. Moon, your AI healthcare assistant. How can I help you?",
-                "Sorry, I'm not sure I understand. Can you please rephrase your question?",
-            ])
-        ):
-            yield 'data: ' + json.dumps({
-                "id": "1",
-                "object": "chat.completion.chunk",
-                "created": 1719206400,
-                "model": "gpt-4o-mini",
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {"content": chunk},
-                        "role": "assistant"
-                    }
-                ]
-            }) + '\n\n'
+async def prompt(request: Request) -> StreamingResponse:
+    data = await request.json()
+    messages: list[dict[str, str]] = data.get("messages", [])
+    client = openai.AsyncClient(api_key=os.getenv("OPENAI_API_KEY"))
+    response = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        stream=True
+    )
 
-    return StreamingResponse(generator(), media_type="text/event-stream")
+    async def to_bytes(generator: AsyncGenerator[BaseModel, None]) -> AsyncGenerator[bytes, None]:
+        async for chunk in generator:
+            yield 'data: ' + chunk.model_dump_json() + '\n\n'
+
+    return StreamingResponse(to_bytes(response), media_type="text/event-stream")
 
 @server_app.get("/vibe-agent/{agent_id}")
 async def vibe_agent(agent_id: str):
@@ -71,8 +62,8 @@ async def vibe_agent(agent_id: str):
     }
     
 @server_app.post("/agent-router/prompt")
-async def agent_router_prompt(url: str) -> StreamingResponse:
-    return await prompt()
+async def agent_router_prompt(url: str, request: Request) -> StreamingResponse:
+    return await prompt(request)
 
 @server_app.get("/health")
 async def health():

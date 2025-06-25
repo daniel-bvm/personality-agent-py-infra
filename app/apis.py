@@ -47,3 +47,12 @@ async def chat_completions(request: ChatCompletionRequest):
 
         logger.info(f"Request {req_id} - TTFT: {ttft:.2f}s, TPS: {tps:.2f} tokens/s")
         return JSONResponse(chunk.model_dump())
+
+@api_router.post("/v1/chat/completions")
+async def chat_completions(request: ChatCompletionRequest):
+    return await chat_completions(request)
+
+@api_router.post("/cancel")
+async def cancel():
+    # TODO: implement cancel
+    return JSONResponse({"status": "ok"})

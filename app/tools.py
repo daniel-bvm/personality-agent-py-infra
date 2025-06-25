@@ -9,7 +9,6 @@ import resource
 import os
 from pydantic import BaseModel
 from tavily import TavilyClient
-from app.configs import settings
 
 import os
 import json
@@ -319,6 +318,8 @@ async def handle_a2a_call(
             api_key=settings.authorization_token,
             completion_path="prompt",
             messages=chat_history + [{"role": "user", "content": message}],
+            id=random_uuid(),
+            stream=True
         )
 
         async for chunk in stream_it:

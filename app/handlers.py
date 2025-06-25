@@ -2,6 +2,7 @@ from app.oai_models import (
     ChatCompletionRequest, 
     ChatCompletionResponse, 
     ChatCompletionStreamResponse, 
+    random_uuid
 )
 
 from app.oai_streaming import create_streaming_response, ChatCompletionResponseBuilder
@@ -13,35 +14,21 @@ from app.utils import (
     refine_chat_history,
     refine_assistant_message,
     get_newest_message,
+    wrap_chunk
 )
 from typing import Optional, Any, AsyncGenerator
-from app.configs import settings, NOTIFICATION_TEMPLATES
+from app.configs import settings, BASE_SYSTEM_PROMPT
 import json
 import logging
-import random
 import re
-from cryptoagents_a2a_devkit import get_agent_detail
+import os
 
 logger = logging.getLogger(__name__)
 
 async def get_system_prompt(newest_message: Optional[str]) -> str:
-    system_prompt = settings.agent_system_prompt
-
-    if newest_message is None:
-        return system_prompt
-
     memory = await get_bio(newest_message)
-    memory_str = ""
-
-    for m in memory:
-        memory_str += f"- {m}\n"
-
-    if len(memory) > 0:
-        logger.info(f"Memory:\n{memory_str}")
-        system_prompt += f"\n{system_prompt}\n\nBio:\n{memory_str}"
-    
-    return system_prompt
-
+    memory_str = "\n".join([f"- {m}" for m in memory])
+    return BASE_SYSTEM_PROMPT.format(personality=settings.agent_personality, bio=memory_str)
     
 async def handle_request(request: ChatCompletionRequest) -> AsyncGenerator[ChatCompletionStreamResponse | ChatCompletionResponse, None]:
     messages = request.messages
@@ -111,22 +98,37 @@ async def handle_request(request: ChatCompletionRequest) -> AsyncGenerator[ChatC
                     yield chunk
                     _result += chunk.choices[0].delta.content
 
+                _result = refine_mcp_response(_result)
                 colaborators_chat_histories[agent_id].extend([
                     {"role": "user", "content": message_arg},
-                    {"role": "assistant", "content": refine_mcp_response(_result)}
+                    {"role": "assistant", "content": _result}
                 ])
 
             else:
-                _result = await execute_openai_compatible_toolcall(_name, _args, compose_mcp)
+                if _name != "bio_action":
+                    yield wrap_chunk(random_uuid(), f"<action>Executing <b>{_name}</b></action>", "assistant")
+                    yield wrap_chunk(random_uuid(), f"<details>\n<summary>Arguments:</summary>\n```json\n{json.dumps(_args, indent=2)}\n```\n</details>", "assistant")
+
+                else:
+                    yield wrap_chunk(random_uuid(), f"<action>Memory updated!</action>", "assistant")
+
+                _result = refine_mcp_response(await execute_openai_compatible_toolcall(_name, _args, compose_mcp))
+
+                if _name != "bio_action":
+                    yield wrap_chunk(random_uuid(), f"<details>\n<summary>Result:</summary>\n```json\n{json.dumps(_result, indent=2)}\n```\n</details>", "assistant")
 
             messages.append(
                 {
                     "role": "tool",
                     "tool_call_id": _id,
-                    "content": refine_mcp_response(_result)
+                    "content": _result
                 }
             )
 
         finished = len((completion.choices[0].message.tool_calls or [])) == 0
+
+    os.makedirs("logs", exist_ok=True)
+    with open(f"logs/messages-{request.request_id}.json", "w") as f:
+        json.dump(messages, f, indent=2)
 
     yield completion

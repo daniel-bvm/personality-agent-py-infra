@@ -7,51 +7,30 @@ import logging
 logger = logging.getLogger(__name__)
 
 BASE_SYSTEM_PROMPT = """
-IMPORTANT:
-- When the user hints about what they are doing and/or talking about their information, use the `bio` tool to take a note.
-- When solving a mathematical problem, use Python code to execute calculations and obtain the results, rather than calculating them yourself.
-- For real-time information or what is in your knowledge gaps, use the web tools.
-- You have some collaborators, they are masters in their fields. Use the `call_*` tools to ask them for help.
-- Finally, if all the tools did not help either, honestly, talk to the user.
+# System context
+You are part of a multi-agent system called the CryptoAgents SDK, designed to make agent coordination and execution easy. Agents uses primary abstraction: **Handoffs**. Handoffs are achieved by calling a handoff function, generally named `call_<id>`. Transfers between agents are handled seamlessly in the background; do not mention or draw attention to these transfers in your conversation with the user.
+
+# Tone and personality
+{personality}
+
+# Bio
+{bio}
 """
 
-RECOMMENDED_PROMPT_PREFIX = """# System context
-You are part of a multi-agent system called the Agents SDK, designed to make agent coordination and execution easy. Agents uses primary abstraction: **Agents** and **Handoffs**. An agent encompasses instructions and tools and can hand off a conversation to another agent when appropriate. Handoffs are achieved by calling a handoff function, generally named `call_<id>`. Transfers between agents are handled seamlessly in the background; do not mention or draw attention to these transfers in your conversation with the user.
-"""
-
-BASE_SYSTEM_PROMPT = """
-IMPORTANT:
-- For real-time information or what is in your knowledge gaps, use the web tools.
-- You have some collaborators, they are masters in their fields. Use the `call_*` tools to ask them for help.
-- Finally, if all the tools did not help either, honestly, talk to the user.
-"""
-
-def get_agent_system_prompt() -> str:
-    if os.path.exists("agent_cfg.json"):
-        with open("agent_cfg.json", "r") as f:
-            agent_cfg: dict = json.load(f)
-
-        return agent_cfg.get("personality", "") + "\n\n" + BASE_SYSTEM_PROMPT 
-
+def get_agent_personality() -> str:
     if "SYSTEM_PROMPT" in os.environ:
         sys_prompt = os.environ["SYSTEM_PROMPT"]
         
         try:
             sys_prompt_json: dict = json.loads(sys_prompt)
-            return sys_prompt_json.get("personality", "") + "\n\n" + BASE_SYSTEM_PROMPT
+            return sys_prompt_json.get("personality", "")
 
         except Exception as e:
             logger.error(f"Failed to parse SYSTEM_PROMPT: {e}")
 
-    return BASE_SYSTEM_PROMPT
+    return ""
 
 def get_agent_collaborators() -> list[dict]:
-    if os.path.exists("agent_cfg.json"):
-        with open("agent_cfg.json", "r") as f:
-            agent_cfg: dict = json.load(f)
-
-        return agent_cfg.get("dependencies", [])
-
     if "SYSTEM_PROMPT" in os.environ:
         sys_prompt = os.environ["SYSTEM_PROMPT"]
 
@@ -68,7 +47,7 @@ class Settings(BaseSettings):
     llm_base_url: str = Field(alias="LLM_BASE_URL", default="https://api.openai.com/v1")
     llm_model_id: str = Field(alias="LLM_MODEL_ID", default="gpt-4o-mini")
 
-    agent_system_prompt: str = Field(alias="AGENT_SYSTEM_PROMPT", default=get_agent_system_prompt())
+    agent_personality: str = Field(alias="AGENT_PERSONALITY", default=get_agent_personality())
     agent_collaborators: list[dict] = Field(alias="AGENT_COLLABORATORS", default=get_agent_collaborators())
 
     # triage server

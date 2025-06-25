@@ -26,20 +26,7 @@ def main():
     async def healthcheck():
         return {"status": "ok", "message": "Yo, I am alive"}
 
-    event_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(event_loop)
-
-    config = uvicorn.Config(
-        server_app,
-        loop=event_loop,
-        host=settings.host,
-        port=settings.port,
-        log_level="warning",
-        timeout_keep_alive=300,
-    )
-
-    server = uvicorn.Server(config)
-    event_loop.run_until_complete(server.serve())
+    uvicorn.run(server_app, host=settings.host, port=settings.port)
 
 if __name__ == '__main__':
     main()
