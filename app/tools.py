@@ -21,7 +21,7 @@ from app.oai_streaming import create_streaming_response
 
 from app.oai_models import random_uuid
 from app.utils import wrap_chunk
-from app.configs import NOTIFICATION_TEMPLATES
+from app.configs import NOTIFICATION_TEMPLATES, Dependency
 import random
 
 logger = logging.getLogger(__name__)
@@ -257,17 +257,17 @@ compose.mount(python_toolkit, prefix="python")
 compose.mount(bio_toolkit, prefix="bio")
 compose.mount(web_toolkit, prefix="web")
 
-async def get_a2a_toolcalls() -> list[dict]:
+async def get_a2a_toolcalls(dependencies: list[Dependency]) -> list[dict]:
     res = []
 
     dependencies: list[a2a_handlers.AgentDetail] = [
         await get_agent_detail(
-            colab.get("id"),
+            dependency.id,
             backend_base_url=settings.backend_base_url,
             authorization_token=settings.authorization_token
         )
-        for colab in settings.agent_collaborators
-        if colab.get("id")
+        for dependency in dependencies
+        if dependency.id
     ]
     
     for dependency in dependencies:

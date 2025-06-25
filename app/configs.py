@@ -4,6 +4,13 @@ import os
 import json
 import logging
 
+
+from pydantic import BaseModel
+
+class Dependency(BaseModel):
+    id: str
+
+
 logger = logging.getLogger(__name__)
 
 BASE_SYSTEM_PROMPT = """
@@ -36,7 +43,7 @@ def get_agent_collaborators() -> list[dict]:
 
         try:
             sys_prompt_json: dict = json.loads(sys_prompt)
-            return sys_prompt_json.get("dependencies", [])
+            return [Dependency.model_validate(d) for d in sys_prompt_json.get("dependencies", [])]
         except Exception as e:
             logger.error(f"Failed to parse SYSTEM_PROMPT: {e}")
 
@@ -48,7 +55,7 @@ class Settings(BaseSettings):
     llm_model_id: str = Field(alias="LLM_MODEL_ID", default="gpt-4o-mini")
 
     agent_personality: str = Field(alias="AGENT_PERSONALITY", default=get_agent_personality())
-    agent_collaborators: list[dict] = Field(alias="AGENT_COLLABORATORS", default=get_agent_collaborators())
+    agent_dependencies: list[Dependency] = Field(alias="AGENT_COLLABORATORS", default=get_agent_collaborators())
 
     # triage server
     backend_base_url: str = Field(alias="BACKEND_BASE_URL", default="http://localhost:8010")
