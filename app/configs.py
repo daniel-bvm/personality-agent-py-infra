@@ -76,8 +76,9 @@ class Settings(BaseSettings):
         case_sensitive = False
 
 # Global settings instance
-settings = Settings() 
+settings = Settings()
 
+print(settings)
 if settings.app_env == "production":
     import os
 
