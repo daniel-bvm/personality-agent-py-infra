@@ -116,6 +116,7 @@ async def create_streaming_response(
 ) -> AsyncGenerator[ChatCompletionStreamResponse, None]:
     completion_path = completion_path.strip("/")
     logger.info(f"Streaming response to {base_url}/{completion_path}")
+    payload_to_call.pop("stream", None)
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
         async with client.stream(
