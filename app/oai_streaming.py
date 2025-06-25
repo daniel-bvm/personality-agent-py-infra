@@ -23,9 +23,10 @@ logger = logging.getLogger(__name__)
 def reconstruct_curl_request(
     base_url: str,
     api_key: str,
+    completion_path: str = "/chat/completions",
     **payload_to_call
 ) -> str:
-    return f'curl -X POST "{base_url}/chat/completions" -H "Authorization: Bearer {api_key}" -H "Content-Type: application/json" -d \'{json.dumps(payload_to_call)}\''
+    return f'curl -X POST "{base_url}/{completion_path}" -H "Authorization: Bearer {api_key}" -H "Content-Type: application/json" -d \'{json.dumps(payload_to_call)}\''
 
 class ChatCompletionResponseBuilder:
     def __init__(self):
@@ -167,8 +168,9 @@ async def create_streaming_response(
                 curl_command = reconstruct_curl_request(
                     base_url,
                     api_key,
-                    stream=True,
+                    completion_path,
                     **payload_to_call,
+                    stream=True,
                 )
 
                 logger.error(f"Failed to stream response: {e}\n{curl_command}")
