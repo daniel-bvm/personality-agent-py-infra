@@ -260,7 +260,7 @@ compose.mount(web_toolkit, prefix="web")
 async def get_a2a_toolcalls(dependencies: list[Dependency]) -> list[dict]:
     res = []
 
-    dependencies: list[a2a_handlers.AgentDetail] = [
+    dependencies_list: list[a2a_handlers.AgentDetail] = [
         await get_agent_detail(
             dependency.id,
             backend_base_url=settings.backend_base_url,
@@ -270,13 +270,13 @@ async def get_a2a_toolcalls(dependencies: list[Dependency]) -> list[dict]:
         if dependency.id
     ]
     
-    for dependency in dependencies:
+    for i, dependency in enumerate(dependencies_list):
         if dependency and dependency["status"] == "running":
             res.append({
                 "type": "function",
                 "function": {
                     "name": f"call_{dependency['agent_id']}",
-                    "description": f"{dependency['agent_name']}, {dependency['description']}",
+                    "description": f"{dependency['agent_name']}, {dependencies[i].description or dependency['description']}",
                     "parameters": {
                         "type": "object",
                         "properties": {

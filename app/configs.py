@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 class Dependency(BaseModel):
     id: str
+    description: str = ""
 
 
 logger = logging.getLogger(__name__)
