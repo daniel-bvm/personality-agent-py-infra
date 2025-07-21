@@ -13,8 +13,24 @@ from openai.types.chat import (ChatCompletionMessageToolCallParam,)
 from typing_extensions import TypedDict, Required
 import logging 
 from dataclasses import dataclass
+
 logger = logging.getLogger(__name__)
 import uuid
+
+
+class Dependency(BaseModel):
+    id: str
+
+class LabRequest(BaseModel):
+    personality: str = ""
+    dependencies: list[Dependency] = []
+    thinking: bool = True
+    
+class ChatTemplate(BaseModel):
+    enable_thinking: bool = True
+
+class ChatCompletionAdditionalParameters(BaseModel):
+    chat_template_kwargs: Optional[ChatTemplate] = None
 
 def random_uuid() -> str:
     """Generate a random UUID string."""

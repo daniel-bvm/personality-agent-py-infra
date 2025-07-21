@@ -154,7 +154,13 @@ async def create_streaming_response(
                         resp_json = json.loads(line)
 
                         if "error" in resp_json:
-                            yield ErrorResponse.model_validate(resp_json.get("error", {}))
+                            errr_obj = resp_json.get("error", {})
+                            
+                            if isinstance(errr_obj, dict):
+                                yield ErrorResponse.model_validate(errr_obj)
+
+                            else:
+                                yield ErrorResponse(message=errr_obj, type="unknown_error")
 
                     except Exception as e:
                         raise e

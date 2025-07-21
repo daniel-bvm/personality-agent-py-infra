@@ -1,4 +1,4 @@
-from typing import TypeVar, Generator, Union, List, Any, Dict
+from typing import TypeVar, Generator, Union, List, Any, Dict, Optional, AsyncGenerator, Callable
 import logging
 from mcp.types import CallToolResult, TextContent, Tool, EmbeddedResource
 from pydantic import BaseModel
@@ -7,7 +7,107 @@ import re
 import datetime
 import json
 import time
-from app.oai_models import ChatCompletionStreamResponse, ChatCompletionMessageParam
+from app.oai_models import ChatCompletionStreamResponse, ChatCompletionMessageParam, ErrorResponse, random_uuid
+import regex
+import asyncio
+from functools import wraps
+from starlette.concurrency import run_in_threadpool
+from functools import partial
+
+def get_file_extension(uri: str) -> str:
+    logger.info(f"received uri: {uri[:100]}")
+    if uri.startswith('data:'):
+        return uri.split(';')[0].split('/')[-1].lower()
+    
+    if uri.startswith('http'):
+        return uri.split('.')[-1].lower()
+    
+    if uri.startswith('file:'):
+        return uri.split('.')[-1].lower()
+    
+    return None
+
+class Attachment:
+    def __init__(self, data_uri: str, name: Optional[str] = None, type: Optional[str] = None):
+        self.data_uri = data_uri
+        self.type = type or get_file_extension(data_uri) or "data"
+        self.name = name or f"attachment_{random_uuid()}.{self.type}"
+
+class AgentResourceManager:
+    def __init__(self):
+        self.resources: dict[str, str] = {}
+        self.attachments: list[Attachment] = []
+        self.data_uri_pattern = regex.compile(r'data:[^;,]+;base64,[A-Za-z0-9+/]+=*', regex.IGNORECASE | regex.DOTALL)
+        self.resource_citing_pattern = regex.compile(r'"([^"]+)"', regex.IGNORECASE | regex.DOTALL)
+
+    def embed_resource(self, content: str) -> str:
+        def replace_with_id(match: regex.Match[str]) -> str:
+            resource_id = random_uuid()
+            self.resources[resource_id] = match.group(0)
+            return resource_id
+
+        return self.data_uri_pattern.sub(replace_with_id, content)
+
+    def extract_resource(self, content: str) -> list[str]:
+        results: list[str] = []
+
+        for m in self.resource_citing_pattern.finditer(content):
+            resource_id: str = m.group(1)
+
+            if resource_id not in results and resource_id in self.resources:
+                results.append(resource_id)
+
+        for resource_id, _ in self.resources.items():
+            if resource_id in content and resource_id not in results:
+                results.append(resource_id)
+
+        return results
+
+    def get_resource_by_id(self, resource_id: str) -> Optional[str]:
+        return self.resources.get(resource_id)
+
+    def reveal_resource(self, content: str) -> str:
+        def replace_with_data_uri(match: regex.Match[str]) -> str:
+            resource_id = match.group(1)
+            return f'"{self.resources.get(resource_id, resource_id)}"'
+
+        return self.resource_citing_pattern.sub(replace_with_data_uri, content)
+    
+    def add_attachment(self, data_uri: str, name: Optional[str] = None) -> Attachment:
+        attachment = Attachment(data_uri, name)
+        self.attachments.append(attachment)
+        return attachment
+
+    async def handle_streaming_response(self, stream: AsyncGenerator[ChatCompletionStreamResponse | ErrorResponse, None]) -> AsyncGenerator[ChatCompletionStreamResponse | ErrorResponse, None]:
+        buffer: str = ''
+        citing_pat = regex.compile(r"<(file|img|data)\b[^>]*>(.*?)</\1>|<(file|img|data)\b[^>]*/>", regex.DOTALL | regex.IGNORECASE)
+
+        async for chunk in stream:
+            if isinstance(chunk, ErrorResponse):
+                yield chunk
+                continue
+
+            buffer += chunk.choices[0].delta.content or ''
+            partial_match = citing_pat.search(buffer, partial=True)
+
+            if not partial_match or (partial_match.span()[0] == partial_match.span()[1]):
+                yield wrap_chunk(random_uuid(), buffer, 'assistant')
+                buffer = ''
+
+                continue
+
+            if partial_match.partial:
+                yield wrap_chunk(random_uuid(), buffer[:partial_match.span()[0]], 'assistant')
+                buffer = buffer[partial_match.span()[0]:]
+
+                continue
+
+            yield wrap_chunk(random_uuid(), self.reveal_resource(buffer), 'assistant')
+            buffer = ''
+
+        if buffer:
+            yield wrap_chunk(random_uuid(), buffer, 'assistant')
+
 
 logger = logging.getLogger(__name__)
 T = TypeVar('T')
@@ -96,12 +196,6 @@ def convert_mcp_tools_to_openai_format(
     
     return openai_tools
 
-def strip_markers(content: str, markers: tuple[str, bool]) -> str:
-    for marker, outter_only in markers:
-        content = strip_marker(content, marker, outter_only)
-
-    return content
-
 def sanitize_tool_name(name: str) -> str:
     """Sanitize tool name for OpenAI compatibility"""
     # Replace any characters that might cause issues
@@ -129,7 +223,7 @@ async def execute_openai_compatible_toolcall(
         
     elif len(candidate) == 0:
         return CallToolResult(
-            content=[TextContent(text=f"Tool {toolname} not found")], 
+            content=[TextContent(text=f"Tool {toolname} not found", type="text")], 
             isError=True
         )
         
@@ -137,59 +231,95 @@ async def execute_openai_compatible_toolcall(
 
     try:
         res = await mcp._mcp_call_tool(toolname, arguments)
+
+        if isinstance(res, tuple) and len(res) == 2:
+            res = res[1].get("result", "empty result")
+  
     except Exception as e:
         logger.error(f"Error executing tool {toolname} with arguments {arguments}: {e}")
         return CallToolResult(
-            content=[TextContent(text=f"Error executing tool {toolname}: {e}")], 
+            content=[TextContent(text=f"Error executing tool {toolname}: {e}", type="text")], 
             isError=True
         )
 
-    return [
-        e for e in res 
-        if isinstance(e, (TextContent, EmbeddedResource))
-    ]
+    return res
+    
+def strip_marker(content: str, marker: str, outter_only: bool = False, replace: str = "") -> str:
+    # Remove self-closing tags like <marker ... />
+    self_closing_pat = re.compile(f"<{marker}\\b[^>]*/>", re.IGNORECASE)
+    content = self_closing_pat.sub(replace, content)
 
-def refine_mcp_response(something: Any) -> str:
+    if not outter_only:
+        # Remove full element including its content
+        pat = re.compile(f"<{marker}\\b[^>]*>.*?</{marker}>", re.DOTALL | re.IGNORECASE)
+        content = pat.sub(replace, content)
+    else:
+        # Remove tag only, keep inner text
+        pat = re.compile(f"<{marker}\\b[^>]*>(.*?)</{marker}>", re.DOTALL | re.IGNORECASE)
+        content = pat.sub(lambda m: m.group(1).strip() or replace, content)
+
+    return content
+
+def strip_markers(content: str, markers: tuple[str, bool, str]) -> str:
+    for tup in markers:
+        if not len(tup):
+            continue
+
+        if len(tup) == 1:
+            marker, outter_only, replace = tup[0], False, ""
+
+        if len(tup) == 2:
+            marker, outter_only, replace = tup[0], tup[1], ""
+
+        if len(tup) == 3:
+            marker, outter_only, replace = tup
+
+        content = strip_marker(content, marker, outter_only, replace)
+
+    return content
+
+def refine_mcp_response(something: Any, arm: AgentResourceManager, skip_embed_resource: bool = False) -> str:
     if isinstance(something, dict):
         return {
-            k: refine_mcp_response(v)
+            k: refine_mcp_response(v, arm, skip_embed_resource)
             for k, v in something.items()
         }
 
     elif isinstance(something, (list, tuple)):
         return [
-            refine_mcp_response(v)
+            refine_mcp_response(v, arm, skip_embed_resource)
             for v in something
         ]
 
     elif isinstance(something, BaseModel):
-        return refine_mcp_response(something.model_dump())
+        return refine_mcp_response(something.model_dump(), arm, skip_embed_resource)
 
     elif isinstance(something, str):
+        if not skip_embed_resource:
+            something = arm.embed_resource(something)
+
         return strip_markers(
             something, 
-            (("agent_message", True), ("think", False), ("details", False), ("img", False))
+            (
+                ("agent_message", True), 
+                ("think", False), 
+                ("details", False), 
+                ("action", False)
+            )
         ).strip()
 
     return something
 
-def strip_marker(content: str, marker: str, outter_only: bool = False) -> str:
-    if not outter_only:
-        pat = re.compile(f"<{marker}\\b[^>]*>.*?</{marker}>", re.DOTALL | re.IGNORECASE)
-        return pat.sub("", content)
-
-    # remove the tag only, keep the text inside
-    pat = re.compile(f"<{marker}\\b[^>]*>(.*?)</{marker}>", re.DOTALL | re.IGNORECASE)
-    return pat.sub(lambda m: m.group(1).strip(), content)
-
-def refine_chat_history(messages: list[dict[str, str]], system_prompt: str) -> list[dict[str, str]]:
+def refine_chat_history(messages: list[dict[str, str]], system_prompt: str, arm: AgentResourceManager) -> list[dict[str, str]]:
     refined_messages = []
 
     current_time_utc_str = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     system_prompt += f'\nNote: Current time is {current_time_utc_str} UTC (only use this information when being asked or for searching purposes)'
 
     has_system_prompt = False
-    for message in messages:
+    attachments: list[tuple[Attachment, int]] = []
+
+    for i, message in enumerate(messages):
         message: dict[str, str]
 
         if isinstance(message, dict) and message.get('role', 'undefined') == 'system':
@@ -204,20 +334,25 @@ def refine_chat_history(messages: list[dict[str, str]], system_prompt: str) -> l
 
             content = message['content']
             text_input = ''
-            attachments = []
 
             for item in content:
+                item: dict[str, Any]
+
                 if item.get('type', 'undefined') == 'text':
                     text_input += item.get('text') or ''
 
                 elif item.get('type', 'undefined') == 'file':
-                    pass
+                    file_item: dict[str, Any] = item.get('file', {})
+                    file_data = file_item.get('file_data')
+                    file_name = file_item.get('file_name')
 
-            if attachments:
-                text_input += '\nAttachments:\n'
+                    if file_data:
+                        attachments.append((arm.add_attachment(file_data, file_name), i))
 
-                for attachment in attachments:
-                    text_input += f'- {attachment}\n'
+                elif item.get('type', 'undefined') == 'image_url':
+                    image_url: dict[str, Any] = item.get('image_url', {})
+                    url = image_url.get('url', '')
+                    attachments.append((arm.add_attachment(url or ''), i))
 
             refined_messages.append({
                 "role": "user",
@@ -225,11 +360,19 @@ def refine_chat_history(messages: list[dict[str, str]], system_prompt: str) -> l
             })
 
         else:
+            raw_content = message.get("content", "")
+            embeded_content = arm.embed_resource(raw_content)
+
             _message = {
                 "role": message.get('role', 'assistant'),
                 "content": strip_markers(
-                    message.get("content", ""), 
-                    (("agent_message", True), ("think", False), ("details", False), ("img", False))
+                    embeded_content, 
+                    (
+                        ("agent_message", False), 
+                        ("think", False), 
+                        ("details", False), 
+                        ("action", False)
+                    )
                 )
             }
 
@@ -259,7 +402,13 @@ def refine_assistant_message(
     if 'content' in assistant_message:
         assistant_message['content'] = strip_markers(
             assistant_message['content'] or "", 
-            (("agent_message", True), ("think", False), ("details", False), ("img", False))
+            (
+                ("agent_message", False), 
+                ("think", False), 
+                ("details", False), 
+                ("img", False), 
+                ("action", False)
+            )
         )
 
     return assistant_message
@@ -354,3 +503,91 @@ def wrap_chunk(id: str, content: str, role: str) -> ChatCompletionStreamResponse
             )
         ]
     )
+
+
+from app.utils import AgentResourceManager, strip_markers, get_file_extension
+
+def create_attachment(data_uri: str, base_name: str) -> dict:
+    ext = get_file_extension(data_uri) or 'data'
+    
+    # is image
+    if ext in ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif']:
+        return {
+            "type": "image_url",
+            "image_url": {
+                "url": data_uri
+            }
+        }
+
+    return {
+        "type": "file",
+        "file": {
+            "filename": f"{base_name}.{ext}",
+            "file_data": data_uri,
+        }
+    }
+    
+
+def create_rich_user_message(message: str, arm: AgentResourceManager) -> dict[str, Any]:
+    attachments: list[str] = arm.extract_resource(message)
+    
+    if len(attachments) == 0:
+        return {
+            "role": "user",
+            "content": message
+        }
+
+    message = strip_markers(
+        message, 
+        (
+            ("img", False),
+            ("file", False),
+            ("data", False)
+        )
+    )
+
+    content = [
+        {
+            "type": "text",
+            "text": message
+        }
+    ]
+
+    for attachment in attachments:
+        attachment_data = arm.get_resource_by_id(attachment)
+
+        if attachment_data:
+            content.append(create_attachment(attachment_data, base_name=attachment))
+
+    return {
+        "role": "user",
+        "content": content
+    }
+    
+def sync2async(sync_func: Callable):
+    async def async_func(*args, **kwargs):
+        res = run_in_threadpool(partial(sync_func, *args, **kwargs))
+
+        if isinstance(res, (Generator, AsyncGenerator)):
+            return res
+
+        return await res
+
+    return async_func if not asyncio.iscoroutinefunction(sync_func) else sync_func
+
+def limit_asyncio_concurrency(num_of_concurrent_calls: int):
+    semaphore = asyncio.Semaphore(num_of_concurrent_calls)
+
+    def decorator(func: Callable):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            async with semaphore:
+                res = func(*args, **kwargs)
+
+                if isinstance(res, (Generator, AsyncGenerator)):
+                    return res
+
+                return await res
+
+        return wrapper
+    return decorator

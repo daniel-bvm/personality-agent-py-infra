@@ -6,3 +6,7 @@ openai
 pydantic-settings
 tavily-python
 cryptoagents-a2a-devkit
+sympy
+regex
+googlesearch-python
+scikit-learn

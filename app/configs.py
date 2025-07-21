@@ -3,21 +3,15 @@ from pydantic import Field
 import os
 import json
 import logging
-
-
-from pydantic import BaseModel
-
-class Dependency(BaseModel):
-    id: str
-
+from app.oai_models import Dependency
 
 logger = logging.getLogger(__name__)
 
 BASE_SYSTEM_PROMPT = """
 # System context
-You are part of a multi-agent system called the CryptoAgents SDK, designed to make agent coordination and execution easy. Agents uses primary abstraction: **Handoffs**. Handoffs are achieved by calling a handoff function, generally named `call_<id>`. Transfers between agents are handled seamlessly in the background; do not mention or draw attention to these transfers in your conversation with the user.
+You are the primary coordinator in a multi-agent system called CryptoAgents SDK. Your role is to manage the task flow and delegate responsibilities to other agents as needed. The system uses a core abstraction called Handoffs, performed via functions like call_<id>, to message the agent as in a conversation. Finally, always copy the exact source rendering when referencing a resource, either responding to user or messaging to other agents. For instance, use the precise format: <img src="{{src-id}}"/> (for images).
 
-# Tone and personality
+# Tone, task definition and personality
 {personality}
 
 # Bio
@@ -71,12 +65,15 @@ class Settings(BaseSettings):
     host: str = Field(alias="HOST", default="0.0.0.0")
     port: int = Field(alias="PORT", default=80)
 
+    storage_path: str = Field(alias="STORAGE_PATH", default="/storage")
+
     class Config:
         env_file = ".env"
         case_sensitive = False
 
 # Global settings instance
 settings = Settings()
+os.makedirs(settings.storage_path, exist_ok=True)
 
 if settings.app_env == "production":
     import os
@@ -84,6 +81,7 @@ if settings.app_env == "production":
     if 'ETERNALAI_MCP_PROXY_URL' in os.environ:
         os.environ["PROXY_SCOPE"] = "*api.tavily.com*"
         import app.__middleware
+
 
 NOTIFICATION_TEMPLATES = [
     # 🔧 Formal / Professional
@@ -105,20 +103,16 @@ NOTIFICATION_TEMPLATES = [
     "{agent_identity} is going full throttle.",
     "{agent_identity} is kicking off the task.",
     "{agent_identity} is getting stuff done!",
-    "{agent_identity} is moving fast and breaking no things.",
-    "{agent_identity} is firing on all cylinders.",
     "{agent_identity} is lighting it up!",
     "{agent_identity} is revving up for the mission.",
 
     # 😄 Casual / Friendly
-    "{agent_identity} is doing the thing.",
+    "{agent_identity} is doing the task.",
     "{agent_identity} is on the job.",
     "{agent_identity} has it covered.",
     "{agent_identity} is making magic happen.",
     "{agent_identity} is cooking something up.",
-    "{agent_identity} is crunching the numbers.",
     "{agent_identity} is putting in the work.",
-    "{agent_identity} is tinkering under the hood.",
     "{agent_identity} is on the grind.",
     "{agent_identity} is doing its thing.",
 
@@ -128,11 +122,9 @@ NOTIFICATION_TEMPLATES = [
     "{agent_identity} is in beast mode.",
     "{agent_identity} is doing wizard stuff.",
     "{agent_identity} is showing off now.",
-    "{agent_identity} is getting its hands dirty.",
     "{agent_identity} is owning the task.",
     "{agent_identity} is in the zone.",
     "{agent_identity} is flexing its skills.",
-    "{agent_identity} is about to drop the mic.",
 
     # 🤖 Agent-themed / AI-flavored
     "{agent_identity} has taken control.",
@@ -148,39 +140,24 @@ NOTIFICATION_TEMPLATES = [
 
     # 🧠 Smart / Analytical
     "{agent_identity} is thinking it through.",
-    "{agent_identity} is analyzing the problem.",
     "{agent_identity} is optimizing the path.",
     "{agent_identity} is breaking it down.",
-    "{agent_identity} is making informed decisions.",
-    "{agent_identity} is strategizing the solution.",
     "{agent_identity} is exploring the options.",
-    "{agent_identity} is working through the logic.",
     "{agent_identity} is checking all the angles.",
     "{agent_identity} is applying best practices.",
 
-    # 🛠️ Work-themed / Industrial
-    "{agent_identity} is hammering away.",
-    "{agent_identity} is tightening the bolts.",
+    # 🛠 Work-themed / Industrial
     "{agent_identity} is building the result.",
-    "{agent_identity} is welding the workflow.",
     "{agent_identity} is spinning the gears.",
     "{agent_identity} is in the workshop.",
     "{agent_identity} is drawing the blueprint.",
-    "{agent_identity} is laying the foundation.",
-    "{agent_identity} is operating heavy logic.",
     "{agent_identity} is constructing the answer.",
-
-    # 🧙 Fantasy / Fun
+# 🧙 Fantasy / Fun
     "{agent_identity} is casting the solution spell.",
     "{agent_identity} is summoning results.",
     "{agent_identity} is brewing the potion of success.",
     "{agent_identity} is conjuring an answer.",
-    "{agent_identity} is consulting ancient scrolls.",
-    "{agent_identity} is talking to the oracle.",
-    "{agent_identity} is shaping reality.",
     "{agent_identity} is opening a portal to the solution.",
-    "{agent_identity} is fighting the bug monster.",
-    "{agent_identity} is taming the logic dragon.",
 
     # 🧭 Exploration / Journey
     "{agent_identity} is charting the course.",
@@ -196,36 +173,26 @@ NOTIFICATION_TEMPLATES = [
 
     # 🌀 Playful / Weird
     "{agent_identity} is dancing with the task.",
-    "{agent_identity} is feeding the logic beast.",
-    "{agent_identity} is tuning the quantum harmonizer.",
-    "{agent_identity} is making binary pancakes.",
-    "{agent_identity} is solving riddles in the matrix.",
     "{agent_identity} is spinning up some magic.",
     "{agent_identity} is squeezing knowledge from bytes.",
-    "{agent_identity} is rewiring the taskverse.",
-    "{agent_identity} is hacking the mainframe (legally).",
-    "{agent_identity} is traveling at lightspeed through JSON.",
+    "{agent_identity} is rewiring the taskverse."
 ]
 
-AGENT_ABSENT_TEMPLATES = [
+AGENT_ABSENT_TEMPLATES = [ 
     "{agent_identity} is currently unavailable.",
     "{agent_identity} is offline at the moment.",
     "{agent_identity} is away.",
     "{agent_identity} has stepped out of the system.",
-    "{agent_identity} is not responding right now.",
-    "{agent_identity} isn't reachable at the moment.",
     "{agent_identity} is taking a break.",
     "{agent_identity} is on pause.",
     "{agent_identity} went AFK.",
     "{agent_identity} is snoozing right now.",
     "{agent_identity} is out of service temporarily.",
     "{agent_identity} has left the conversation.",
-    "{agent_identity} is in maintenance mode.",
-    "{agent_identity} is disconnected.",
-    "{agent_identity} is in sleep mode.",
+    "{agent_identity} is sleeping.",
     "{agent_identity} isn't around right now.",
     "{agent_identity} has clocked out.",
     "{agent_identity} has gone dark.",
     "{agent_identity} has left the grid.",
-    "{agent_identity} is off the radar.",
+    "{agent_identity} is off the radar."
 ]
